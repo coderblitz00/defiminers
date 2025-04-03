@@ -1,5 +1,5 @@
 import { Progress } from "@/components/ui/progress";
-import { MineMap } from "@/constants/Map";
+import { MapTile, MineMap } from "@/constants/Map";
 import { MineTypes } from "@/constants/Mine";
 import { useGameUpdate } from "@/hooks/useGameUpdate";
 import { useInteractivity } from "@/hooks/useInteractivity";
@@ -121,17 +121,14 @@ export const PixiMiningArea = ({
       // Store the application reference
       appRef.current = app;
 
+      const tileCountX = Math.floor(app.screen.width / MapTile.width);
+      const tileCountY = Math.floor(app.screen.height / MapTile.height);
+      console.log({ tileCountX, tileCountY });
+
       // Create game container with optimized scaling
       const gameContainer = new PIXI.Container();
-      const scale = Math.min(
-        app.screen.width / (MineMap.width * MineMap.tilewidth),
-        app.screen.height / (MineMap.height * MineMap.tileheight)
-      );
-      gameContainer.scale.set(scale);
-      gameContainer.x =
-        (app.screen.width - MineMap.width * MineMap.tilewidth * scale) / 2;
-      gameContainer.y =
-        (app.screen.height - MineMap.height * MineMap.tileheight * scale) / 2;
+      gameContainer.x = (app.screen.width - tileCountX * MapTile.width) / 2;
+      gameContainer.y = (app.screen.height - tileCountY * MapTile.height) / 2;
       app.stage.addChild(gameContainer);
 
       // Optimize sprite loading and game initialization
@@ -139,13 +136,20 @@ export const PixiMiningArea = ({
         try {
           // Preload sprites with progress tracking
           console.log("Preloading sprites...");
-          await preloadSprites(MineMap, (progress) => {
+          await preloadSprites((progress) => {
             setLoadingProgress(Math.min(90, 5 + progress * 0.85));
           });
 
           // Render map layers
           console.log("Rendering map layers...");
-          await renderMapLayers(app, gameContainer, ores, activeMine);
+          await renderMapLayers(
+            app,
+            gameContainer,
+            ores,
+            activeMine,
+            tileCountX,
+            tileCountY
+          );
 
           // Add interactive elements
           console.log("Setting up interactivity...");
