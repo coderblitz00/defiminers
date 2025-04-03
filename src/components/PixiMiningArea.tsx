@@ -5,7 +5,7 @@ import { useGameUpdate } from "@/hooks/useGameUpdate";
 import { useInteractivity } from "@/hooks/useInteractivity";
 import { Miner } from "@/interfaces/MinerTypes";
 import { Ore } from "@/interfaces/OreTypes";
-import { renderMapLayers } from "@/lib/mapUtils";
+import { renderMapLayers } from "@/lib/mapLogic";
 import { preloadSprites } from "@/utils/spriteLoader";
 import * as PIXI from "pixi.js";
 import { useCallback, useEffect, useRef, useState } from "react";
