@@ -1,13 +1,14 @@
-import { MineTypes } from "@/constants/Mine";
+import * as PIXI from "pixi.js";
+
+import { OreData } from "@/constants/Ore";
 import {
   FloorData,
   InitialTileWidth,
   LayerName,
-  MineCartsData,
-  MountainData,
   SpriteName,
-  Sprites,
+  WallData,
 } from "@/constants/Sprites";
+import { GameState } from "@/interfaces/GameType";
 import {
   MapContainer,
   MapDimensions,
@@ -16,28 +17,24 @@ import {
 } from "@/interfaces/MapTypes";
 import { Miner } from "@/interfaces/MinerTypes";
 import { Ore } from "@/interfaces/OreTypes";
-import { Rail } from "@/interfaces/RailType";
-import {
-  createMinerTilesetTexture,
-  createTilesetTexture,
-} from "@/utils/spriteLoader";
+import { createTilesetTexture } from "@/utils/spriteLoader";
 import { getRandomTileId } from "@/utils/utils";
-import * as PIXI from "pixi.js";
 import {
-  createMinerAtPositions,
+  createMineCartRoute,
+  createMineCartSprite,
+  MineCartRoutes,
+} from "./mineCartLogic";
+import {
   findValidMinerPositions,
-  getMinerAnimationType,
-  updateMinerPositions,
+  updateMinerPositionsRandomly,
 } from "./minersLogic";
 import { findValidOrePositions, updateOrePositions } from "./oresLogic";
-import { OreData } from "@/constants/Ore";
-import { GameState } from "@/interfaces/GameType";
-import { findValidRailPositions, updateRailPositions } from "./railLogic";
+import { updateRailPositions } from "./railLogic";
+import { createRailSprite } from "./railMap";
 
 // Constants
 export const MapLayerType: LayerName[][] = [];
 export const minerSprites = new Map<string, MinerSpriteData>();
-export const oreSpriteCache = new Map<string, PIXI.Sprite>();
 
 // Cache for text styles
 const textStyles = {
@@ -77,16 +74,21 @@ const createMapContainer = (container: PIXI.Container): MapContainer => {
   oreContainer.name = LayerName.Ore;
   container.addChild(oreContainer);
 
+  const mineCartContainer = new PIXI.Container();
+  mineCartContainer.name = LayerName.MineCart;
+  container.addChild(mineCartContainer);
+
   return {
     floor: floorContainer,
     wall: wallContainer,
     miner: minerContainer,
     ore: oreContainer,
     rail: railContainer,
+    mineCart: mineCartContainer,
   };
 };
 
-const calculateMapCenter = (dimensions: MapDimensions): MapPosition => ({
+export const calculateMapCenter = (dimensions: MapDimensions): MapPosition => ({
   x: Math.floor(dimensions.width / 2),
   y: Math.floor(dimensions.height / 2),
 });
@@ -95,7 +97,7 @@ const calculateMapCenter = (dimensions: MapDimensions): MapPosition => ({
 const generateCaveShape = (
   width: number,
   height: number,
-  roughness: number = 0.3
+  roughness: number
 ): boolean[][] => {
   const shape: boolean[][] = Array(height)
     .fill(0)
@@ -127,18 +129,27 @@ const generateCaveShape = (
   }
 
   // Smooth the edges
-  for (let y = 1; y < height - 1; y++) {
-    for (let x = 1; x < width - 1; x++) {
-      if (shape[y][x]) {
-        // Count adjacent floor tiles
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      if (!shape[y][x]) {
         let floorCount = 0;
-        for (let dy = -1; dy <= 1; dy++) {
-          for (let dx = -1; dx <= 1; dx++) {
-            if (shape[y + dy][x + dx]) floorCount++;
-          }
-        }
-        // If too isolated, convert to wall
-        if (floorCount < 4) shape[y][x] = false;
+        if (y === 0 || shape[y - 1][x]) floorCount++;
+        if (y === height - 1 || shape[y + 1][x]) floorCount++;
+        if (x === 0 || shape[y][x - 1]) floorCount++;
+        if (x === width - 1 || shape[y][x + 1]) floorCount++;
+        if (floorCount >= 3) shape[y][x] = true;
+      }
+    }
+  }
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      if (shape[y][x]) {
+        let floorCount = 0;
+        if (y === 0 || !shape[y - 1][x]) floorCount++;
+        if (y === height - 1 || !shape[y + 1][x]) floorCount++;
+        if (x === 0 || !shape[y][x - 1]) floorCount++;
+        if (x === width - 1 || !shape[y][x + 1]) floorCount++;
+        if (floorCount >= 3) shape[y][x] = false;
       }
     }
   }
@@ -149,7 +160,7 @@ const generateCaveShape = (
   return shape;
 };
 
-const calculateAvailableAreaBounds = (
+export const calculateAvailableAreaBounds = (
   center: MapPosition,
   availableArea: MapDimensions
 ): { start: MapPosition; end: MapPosition; shape: boolean[][] } => {
@@ -162,7 +173,7 @@ const calculateAvailableAreaBounds = (
   const shape = generateCaveShape(
     availableArea.width,
     availableArea.height,
-    0.2
+    0.1
   );
 
   return {
@@ -230,7 +241,7 @@ const createFloorTiles = (
   dimensions: MapDimensions,
   onBaseClick: () => void,
   updateGameState: (gameState: GameState) => void
-): MapPosition => {
+): { doorPosition: MapPosition } => {
   // First, find the top center position for the door
   const doorX = Math.floor((bounds.start.x + bounds.end.x) / 2);
   const doorY = bounds.start.y;
@@ -248,10 +259,7 @@ const createFloorTiles = (
 
     // Set the base position
     updateGameState({
-      basePosition: {
-        x: (100 * doorPosition.x) / dimensions.width,
-        y: (100 * doorPosition.y) / dimensions.height,
-      },
+      basePosition: doorPosition,
     } as GameState);
 
     // Add click event to door sprite
@@ -291,62 +299,111 @@ const createFloorTiles = (
       }
     }
   }
-  return doorPosition;
+  return { doorPosition };
 };
 
 export const createOreSprite = (
+  containers: MapContainer,
   ore: Ore,
   onOreClick: (ore: Ore) => void,
   isBlackout: boolean
-): PIXI.Sprite => {
-  // Check cache first
-  if (oreSpriteCache.has(ore.id)) {
-    const cachedSprite = oreSpriteCache.get(ore.id)!;
-    cachedSprite.alpha = ore.depleted ? 0.4 : 1;
-    if (!isBlackout && onOreClick) {
-      cachedSprite.eventMode = "static";
-      cachedSprite.cursor = "pointer";
-      cachedSprite.removeAllListeners();
-      cachedSprite.on("pointerdown", () => onOreClick(ore));
-    }
-    return cachedSprite;
-  }
-
-  const oreTileset = Sprites.find((ts) => ts.name === SpriteName.MiningOres);
-  if (!oreTileset) {
-    throw new Error("Ore tileset not found");
-  }
-
-  const tileTexture = createTilesetTexture(
+) => {
+  const sprite = updateMapType(
+    containers.ore,
+    ore.position,
     SpriteName.MiningOres,
-    24 + Object.keys(OreData).findIndex((or) => or === ore.type)
+    25 + Object.keys(OreData).findIndex((or) => or === ore.type),
+    LayerName.Ore
   );
 
-  const oreSprite = new PIXI.Sprite(tileTexture);
-  oreSprite.name = `ore-${ore.id}`;
-  oreSprite.x = ore.position.x * InitialTileWidth;
-  oreSprite.y = ore.position.y * InitialTileWidth;
-  oreSprite.width = InitialTileWidth;
-  oreSprite.height = InitialTileWidth;
-  oreSprite.eventMode = "static";
-  oreSprite.cursor = "pointer";
-  oreSprite.alpha = ore.depleted ? 0.4 : 1;
-
   if (!isBlackout && onOreClick) {
-    oreSprite.on("pointerdown", () => onOreClick(ore));
+    sprite.eventMode = "static";
+    sprite.cursor = "pointer";
+    sprite.removeAllListeners();
+    sprite.on("pointerdown", () => onOreClick(ore));
+  }
+  sprite.name = `ore-${ore.id}`;
+  sprite.cursor = "pointer";
+  sprite.alpha = ore.depleted ? 0.4 : 1;
+};
+
+const isConnectWithWallTile = (position: MapPosition) => {
+  const { x, y } = position;
+  const adjacent = {
+    top:
+      !MapLayerType[y - 1]?.[x] ||
+      MapLayerType[y - 1]?.[x] === LayerName.Wall ||
+      MapLayerType[y - 1]?.[x] === LayerName.Mountains,
+    bottom:
+      !MapLayerType[y + 1]?.[x] ||
+      MapLayerType[y + 1]?.[x] === LayerName.Wall ||
+      MapLayerType[y + 1]?.[x] === LayerName.Mountains,
+    left:
+      !MapLayerType[y]?.[x - 1] ||
+      MapLayerType[y]?.[x - 1] === LayerName.Wall ||
+      MapLayerType[y]?.[x - 1] === LayerName.Mountains,
+    right:
+      !MapLayerType[y]?.[x + 1] ||
+      MapLayerType[y]?.[x + 1] === LayerName.Wall ||
+      MapLayerType[y]?.[x + 1] === LayerName.Mountains,
+  };
+
+  // Determine wall type based on adjacent walls
+  const { top, bottom, left, right } = adjacent;
+  let tileType = "GeneralWall";
+
+  if (!bottom || !left || !right || !top) {
+    tileType = "MountainToDown";
   }
 
-  // Add regeneration timer text with cached style
-  const timerText = new PIXI.Text("", textStyles.timer);
-  timerText.name = "timer-text";
-  timerText.anchor.set(0.5, -1);
-  timerText.y = -10;
-  oreSprite.addChild(timerText);
+  return { tileType };
+};
 
-  // Cache the sprite
-  oreSpriteCache.set(ore.id, oreSprite);
+const isConnectWithMountainTile = (position: MapPosition) => {
+  const { x, y } = position;
+  let tileType = "GeneralWall";
 
-  return oreSprite;
+  const adjacent = {
+    top: MapLayerType[y - 1]?.[x] === LayerName.Mountains,
+    bottom: MapLayerType[y + 1]?.[x] === LayerName.Mountains,
+    left: MapLayerType[y]?.[x - 1] === LayerName.Mountains,
+    right: MapLayerType[y]?.[x + 1] === LayerName.Mountains,
+  };
+
+  const { top, bottom, left, right } = adjacent;
+
+  if (!bottom || !left || !right || !top) {
+    if (top && left) {
+      tileType = "WallToLeftUp";
+    } else if (top && right) {
+      tileType = "WallToRightUp";
+    } else if (bottom && left) {
+      tileType = "WallToLeftDown";
+    } else if (bottom && right) {
+      tileType = "WallToRightDown";
+    } else if (top) {
+      tileType = "WallToUp";
+    } else if (bottom) {
+      tileType = "WallToDown";
+    } else if (left) {
+      tileType = "WallToLeft";
+    } else if (right) {
+      tileType = "WallToRight";
+    }
+  }
+
+  return { tileType };
+};
+
+const isBellowMountain = (position: MapPosition) => {
+  const { x, y } = position;
+  let tileType = "";
+
+  if (MapLayerType[y - 1]?.[x] === LayerName.Mountains) {
+    tileType = "MountainShadow";
+  }
+
+  return { tileType };
 };
 
 const createWallTiles = (
@@ -354,68 +411,67 @@ const createWallTiles = (
   bounds: { start: MapPosition; end: MapPosition; shape: boolean[][] },
   dimensions: MapDimensions
 ): void => {
+  // add normal wall
   for (let y = 0; y < dimensions.height; y++) {
     for (let x = 0; x < dimensions.width; x++) {
       const position = { x, y };
       if (isPositionInAvailableArea(position, bounds)) continue;
 
+      const { tileType } = isConnectWithWallTile(position);
       updateMapType(
         containers.wall,
         position,
         SpriteName.WallsFloors,
-        MountainData.GeneralWall,
+        WallData[tileType],
+        tileType === "MountainToDown" ||
+          tileType === "MountainToLeftDown" ||
+          tileType === "MountainToRightDown"
+          ? LayerName.Mountains
+          : LayerName.Wall
+      );
+    }
+  }
+
+  // add mountain tiles
+  for (let y = 0; y < dimensions.height; y++) {
+    for (let x = 0; x < dimensions.width; x++) {
+      const position = { x, y };
+      if (isPositionInAvailableArea(position, bounds)) continue;
+      if (MapLayerType[y]?.[x] === LayerName.Mountains) continue;
+
+      const { tileType } = isConnectWithMountainTile(position);
+      updateMapType(
+        containers.wall,
+        position,
+        SpriteName.WallsFloors,
+        WallData[tileType],
         LayerName.Wall
       );
     }
   }
-};
 
-export const createMinerSprite = (miner: Miner): PIXI.Sprite => {
-  const animationType = getMinerAnimationType(miner);
-  const spriteName = SpriteName.CharacterPushBodyGreen;
-  const spriteData = Sprites.find((s) => s.name === spriteName);
-  if (!spriteData) return null;
+  // add wall to mountain
+  for (let y = 0; y < dimensions.height; y++) {
+    for (let x = 0; x < dimensions.width; x++) {
+      const position = { x, y };
+      if (
+        MapLayerType[y]?.[x] === LayerName.Mountains ||
+        MapLayerType[y]?.[x] === LayerName.Wall
+      )
+        continue;
 
-  const animationData = spriteData.animations[animationType];
-  if (!animationData) return null;
-
-  const sprite = new PIXI.Sprite();
-  sprite.name = `miner-${miner.id}`;
-
-  // Set initial position
-  sprite.x = miner.position.x * InitialTileWidth;
-  sprite.y = miner.position.y * InitialTileWidth;
-
-  // Set initial texture
-  const texture = createMinerTilesetTexture(
-    SpriteName.CharacterPushBodyGreen,
-    animationData.frames[0]
-  );
-  sprite.texture = texture;
-
-  // Store animation data
-  minerSprites.set(miner.id, {
-    sprite,
-    animationType,
-    frame: 0,
-    time: 0,
-  });
-
-  return sprite;
-};
-
-export const createRailSprite = (rail: Rail): PIXI.Sprite => {
-  // Create a rail sprite based on the rail type
-  const railTexture = createTilesetTexture(SpriteName.MineCarts, rail.type);
-  const railSprite = new PIXI.Sprite(railTexture);
-
-  railSprite.name = `rail-${rail.id}`;
-  railSprite.x = rail.position.x * InitialTileWidth;
-  railSprite.y = rail.position.y * InitialTileWidth;
-  railSprite.width = InitialTileWidth;
-  railSprite.height = InitialTileWidth;
-
-  return railSprite;
+      const { tileType } = isBellowMountain(position);
+      if (tileType) {
+        updateMapType(
+          containers.wall,
+          position,
+          SpriteName.WallsFloors,
+          WallData[tileType],
+          LayerName.Floor
+        );
+      }
+    }
+  }
 };
 
 // Main Function
@@ -423,6 +479,8 @@ export const renderMapLayers = async (
   app: PIXI.Application,
   container: PIXI.Container,
   gameState: GameState,
+  miners: Miner[],
+  ores: Ore[],
   onOreClick: (ore: Ore) => void,
   updateGameState: (gameState: GameState) => void,
   isBlackout: boolean,
@@ -430,8 +488,7 @@ export const renderMapLayers = async (
   onBaseClick?: () => void
 ): Promise<void> => {
   try {
-    console.log(gameState, dimensions);
-    const mine = MineTypes.find((m) => m.id === gameState.activeMine);
+    const mine = gameState.mines[gameState.activeMine];
     if (!mine) {
       throw new Error("Active mine not found");
     }
@@ -441,7 +498,7 @@ export const renderMapLayers = async (
     const containers = createMapContainer(container);
 
     // Create floor and door tiles
-    const door = createFloorTiles(
+    const { doorPosition } = createFloorTiles(
       containers,
       bounds,
       dimensions,
@@ -456,8 +513,7 @@ export const renderMapLayers = async (
       throw new Error("Active mine not found");
     }
 
-    const rails = updateRailPositions(activeMine, door);
-    console.log(rails);
+    const rails = updateRailPositions(activeMine, doorPosition);
 
     // Update game state with the new rails
     updateGameState({
@@ -466,7 +522,7 @@ export const renderMapLayers = async (
 
     // Render rail sprites
     rails.forEach((rail) => {
-      const railSprite = createRailSprite(rail);
+      const railSprite = createRailSprite(rail, containers);
       containers.rail.addChild(railSprite);
     });
 
@@ -475,14 +531,10 @@ export const renderMapLayers = async (
       dimensions.width,
       dimensions.height
     );
-    updateOrePositions(
-      gameState.ores,
-      validOrePositions,
-      mine.rareOreChance || 1
-    );
-    gameState.ores.forEach((ore) => {
-      const oreSprite = createOreSprite(ore, onOreClick, isBlackout);
-      containers.miner.addChild(oreSprite);
+    updateOrePositions(ores, validOrePositions, mine.rareOreChance || 1);
+    ores.forEach((ore) => {
+      createOreSprite(containers, ore, onOreClick, isBlackout);
+      // containers.miner.addChild(oreSprite);
     });
 
     // Create miner tiles
@@ -490,17 +542,27 @@ export const renderMapLayers = async (
       dimensions.width,
       dimensions.height
     );
-    updateMinerPositions(
-      gameState.miners,
+    updateMinerPositionsRandomly(
+      miners,
       validMinerPositions,
-      gameState.activeMine
+      gameState.activeMine,
+      dimensions
     );
 
     // Create miner sprites
-    gameState.miners.forEach((miner) => {
-      const minerSprite = createMinerSprite(miner);
-      containers.miner.addChild(minerSprite);
+    // miners.forEach((miner) => {
+    //   const minerSprite = createMinerSprite(miner);
+    //   containers.miner.addChild(minerSprite);
+    // });
+
+    // create mine cart sprites
+    createMineCartRoute({
+      x: doorPosition.x,
+      y: doorPosition.y + 1,
     });
+
+    const mineCartSprite = createMineCartSprite(MineCartRoutes[0], 0);
+    containers.mineCart.addChild(mineCartSprite);
   } catch (error) {
     console.error("Error rendering map layers:", error);
     throw error;

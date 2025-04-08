@@ -2,16 +2,27 @@ import { SpriteType } from "@/interfaces/PixiTypes";
 
 export enum AnimationType {
   LampAnimation = "lamp_animation",
-  MineCartAnimation = "mine_cart_animation",
+
+  MineCartAnimationLeft = "mine_cart_animation_left",
+  MineCartAnimationRight = "mine_cart_animation_right",
+  MineCartAnimationUp = "mine_cart_animation_up",
+  MineCartAnimationDown = "mine_cart_animation_down",
+
   PushRight = "push_right",
   PushLeft = "push_left",
   PushUp = "push_up",
   PushDown = "push_down",
+
+  Right = "right",
+  Left = "left",
+  Up = "up",
+  Down = "down",
+  Standing = "standing",
+
   DrillingRight = "drilling_right",
   DrillingLeft = "drilling_left",
   DrillingUp = "drilling_up",
   DrillingDown = "drilling_down",
-  Standing = "standing",
 }
 
 export enum SpriteName {
@@ -27,9 +38,18 @@ export enum SpriteName {
   LampAnimation = "LampAnimation",
   MineCartAnimation = "MineCartAnimation",
   Ladders = "Ladders",
+
   CharacterToolsDrillBodyGreen = "CharacterToolsDrillBodyGreen",
+  CharacterToolsDrillBodyDark = "CharacterToolsDrillBodyDark",
+  CharacterToolsDrillBodyLight = "CharacterToolsDrillBodyLight",
+
   CharacterPushBodyGreen = "CharacterPushBodyGreen",
   CharacterPushClothesFullBodyOverhallsBlue = "CharacterPushClothesFullBodyOverhallsBlue",
+
+  CharacterWalkBodyLight = "CharacterWalkBodyLight",
+  CharacterWalkBodyDark = "CharacterWalkBodyDark",
+  CharacterWalkBodyBrown = "CharacterWalkBodyBrown",
+
   MineProps = "MineProps",
   ChracterPushHairStylesRadicalCurveBlack = "ChracterPushHairStylesRadicalCurveBlack",
   MiningOres = "MiningOres",
@@ -43,6 +63,7 @@ export enum LayerName {
   Miners = "Miners",
   Ore = "Ore",
   Doors = "Doors",
+  MineCart = "MineCart",
 }
 
 export enum MineCartsData {
@@ -124,6 +145,31 @@ export const FloorData = [
   },
 ];
 
+export enum WallData {
+  WallToLeft = 128,
+  WallToRight = 133,
+  WallToUp = 46,
+  WallToDown = 256,
+  WallToLeftUp = 45,
+  WallToRightUp = 48,
+  WallToLeftDown = 212,
+  WallToRightDown = 258,
+  WallToLeftRightUp = 51,
+  WallToLeftRightDown = 93,
+  WallToLeftUpDown = 385,
+  WallToRightUpDown = 388,
+  WallToUpDown = 386,
+  WallToLeftRight = 429,
+
+  MountainToDown = 297,
+  MountainToLeftDown = 298,
+  MountainToRightDown = 300,
+
+  GeneralWall = 213,
+
+  MountainShadow = 340,
+}
+
 export enum MountainData {
   BottomEnhance = 254,
   LeftWall = 212,
@@ -131,7 +177,7 @@ export enum MountainData {
   GeneralWall = 213,
 }
 
-export const InitialTileWidth = 16;
+export const InitialTileWidth: number = 16;
 
 export const Sprites: SpriteType[] = [
   {
@@ -237,10 +283,22 @@ export const Sprites: SpriteType[] = [
     height: 96,
     tileWidth: 16,
     tileHeight: 16,
-    tileCount: 12,
+    tileCount: 48,
     animations: {
-      [AnimationType.MineCartAnimation]: {
-        frames: [0, 1, 2, 3],
+      [AnimationType.MineCartAnimationLeft]: {
+        frames: [1, 3, 5, 7],
+        speed: 0.3,
+      },
+      [AnimationType.MineCartAnimationRight]: {
+        frames: [17, 19, 21, 23],
+        speed: 0.3,
+      },
+      [AnimationType.MineCartAnimationUp]: {
+        frames: [33, 35, 37, 39],
+        speed: 0.3,
+      },
+      [AnimationType.MineCartAnimationDown]: {
+        frames: [33, 35, 37, 39],
         speed: 0.3,
       },
     },
@@ -254,33 +312,90 @@ export const Sprites: SpriteType[] = [
     tileHeight: 16,
     tileCount: 36,
   },
+
+  // Character tools drill body
   {
     name: SpriteName.CharacterToolsDrillBodyGreen,
-    path: "/assets/character/tools_drill/hairstyles/big_bun/character_tools_drill_hairstyles_big_bun_blue.png",
+    path: "/assets/character/tools_drill/character_body/character_tools_drill_hairstyles_big_bun_blue.png",
     width: 192,
     height: 256,
     tileWidth: 16,
     tileHeight: 16,
     tileCount: 192,
     animations: {
-      [AnimationType.DrillingRight]: {
-        frames: [60, 64, 68],
+      [AnimationType.Right]: {
+        frames: [14, 18, 22],
         speed: 0.1,
       },
-      [AnimationType.DrillingLeft]: {
-        frames: [61, 65, 69],
-        speed: 0.1,
-      },
-      [AnimationType.DrillingUp]: {
+      [AnimationType.Left]: {
         frames: [62, 66, 70],
         speed: 0.1,
       },
-      [AnimationType.DrillingDown]: {
-        frames: [63, 67, 71],
+      [AnimationType.Up]: {
+        frames: [110, 114, 118],
+        speed: 0.1,
+      },
+      [AnimationType.Down]: {
+        frames: [158, 162, 166],
         speed: 0.1,
       },
     },
   },
+  {
+    name: SpriteName.CharacterToolsDrillBodyDark,
+    path: "/assets/character/tools_drill/character_body/character_tools_drill_body_dark.png",
+    width: 192,
+    height: 256,
+    tileWidth: 16,
+    tileHeight: 16,
+    tileCount: 192,
+    animations: {
+      [AnimationType.Right]: {
+        frames: [14, 18, 22],
+        speed: 0.1,
+      },
+      [AnimationType.Left]: {
+        frames: [62, 66, 70],
+        speed: 0.1,
+      },
+      [AnimationType.Up]: {
+        frames: [110, 114, 118],
+        speed: 0.1,
+      },
+      [AnimationType.Down]: {
+        frames: [158, 162, 166],
+        speed: 0.1,
+      },
+    },
+  },
+  {
+    name: SpriteName.CharacterToolsDrillBodyLight,
+    path: "/assets/character/tools_drill/character_body/character_tools_drill_body_light.png",
+    width: 192,
+    height: 256,
+    tileWidth: 16,
+    tileHeight: 16,
+    tileCount: 192,
+    animations: {
+      [AnimationType.Right]: {
+        frames: [14, 18, 22],
+        speed: 0.1,
+      },
+      [AnimationType.Left]: {
+        frames: [62, 66, 70],
+        speed: 0.1,
+      },
+      [AnimationType.Up]: {
+        frames: [110, 114, 118],
+        speed: 0.1,
+      },
+      [AnimationType.Down]: {
+        frames: [158, 162, 166],
+        speed: 0.1,
+      },
+    },
+  },
+
   {
     name: SpriteName.CharacterPushBodyGreen,
     path: "/assets/character/push/character_body/character_push_body_green.png",
@@ -291,23 +406,23 @@ export const Sprites: SpriteType[] = [
     tileCount: 384,
     animations: {
       [AnimationType.Standing]: {
-        frames: [24],
+        frames: [26],
         speed: 0.1,
       },
       [AnimationType.PushRight]: {
-        frames: [24, 28, 32, 36, 40, 44],
+        frames: [26, 30, 34, 38, 42, 46],
         speed: 0.1,
       },
       [AnimationType.PushLeft]: {
-        frames: [120, 124, 128, 132, 136, 140],
+        frames: [122, 126, 130, 134, 138, 142],
         speed: 0.1,
       },
       [AnimationType.PushUp]: {
-        frames: [216, 220, 224, 228, 232, 236],
+        frames: [218, 222, 226, 230, 234, 238],
         speed: 0.1,
       },
       [AnimationType.PushDown]: {
-        frames: [312, 316, 320, 324, 328, 332],
+        frames: [314, 318, 322, 326, 330, 334],
         speed: 0.1,
       },
     },
@@ -387,5 +502,100 @@ export const Sprites: SpriteType[] = [
     tileWidth: 16,
     tileHeight: 16,
     tileCount: 80,
+  },
+
+  // Character walk body
+  {
+    name: SpriteName.CharacterWalkBodyLight,
+    path: "/assets/character/walk/character_body/character_walk_body_light.png",
+    width: 384,
+    height: 256,
+    tileWidth: 16,
+    tileHeight: 16,
+    tileCount: 384,
+    animations: {
+      [AnimationType.Standing]: {
+        frames: [218],
+        speed: 0.1,
+      },
+      [AnimationType.Right]: {
+        frames: [26, 30, 34, 38, 42, 46],
+        speed: 0.3,
+      },
+      [AnimationType.Left]: {
+        frames: [122, 126, 130, 134, 138, 142],
+        speed: 0.3,
+      },
+      [AnimationType.Down]: {
+        frames: [218, 222, 226, 230, 234, 238],
+        speed: 0.3,
+      },
+      [AnimationType.Up]: {
+        frames: [314, 318, 322, 326, 330, 334],
+        speed: 0.3,
+      },
+    },
+  },
+  {
+    name: SpriteName.CharacterWalkBodyDark,
+    path: "/assets/character/walk/character_body/character_walk_body_dark.png",
+    width: 384,
+    height: 256,
+    tileWidth: 16,
+    tileHeight: 16,
+    tileCount: 384,
+    animations: {
+      [AnimationType.Standing]: {
+        frames: [218],
+        speed: 0.1,
+      },
+      [AnimationType.Right]: {
+        frames: [26, 30, 34, 38, 42, 46],
+        speed: 0.3,
+      },
+      [AnimationType.Left]: {
+        frames: [122, 126, 130, 134, 138, 142],
+        speed: 0.3,
+      },
+      [AnimationType.Down]: {
+        frames: [218, 222, 226, 230, 234, 238],
+        speed: 0.3,
+      },
+      [AnimationType.Up]: {
+        frames: [314, 318, 322, 326, 330, 334],
+        speed: 0.3,
+      },
+    },
+  },
+  {
+    name: SpriteName.CharacterWalkBodyBrown,
+    path: "/assets/character/walk/character_body/character_walk_body_brown.png",
+    width: 384,
+    height: 256,
+    tileWidth: 16,
+    tileHeight: 16,
+    tileCount: 384,
+    animations: {
+      [AnimationType.Standing]: {
+        frames: [218],
+        speed: 0.1,
+      },
+      [AnimationType.Right]: {
+        frames: [26, 30, 34, 38, 42, 46],
+        speed: 0.3,
+      },
+      [AnimationType.Left]: {
+        frames: [122, 126, 130, 134, 138, 142],
+        speed: 0.3,
+      },
+      [AnimationType.Down]: {
+        frames: [218, 222, 226, 230, 234, 238],
+        speed: 0.3,
+      },
+      [AnimationType.Up]: {
+        frames: [314, 318, 322, 326, 330, 334],
+        speed: 0.3,
+      },
+    },
   },
 ];

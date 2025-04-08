@@ -1,18 +1,10 @@
 import { OreData } from "@/constants/Ore";
-import {
-  InitialTileWidth,
-  LayerName,
-  SpriteName,
-  Sprites,
-} from "@/constants/Sprites";
+import { InitialTileWidth, LayerName } from "@/constants/Sprites";
 import { GameState } from "@/interfaces/GameType";
-import { MapDimensions } from "@/interfaces/MapTypes";
-import { Miner } from "@/interfaces/MinerTypes";
-import { Ore } from "@/interfaces/OreTypes";
 import { AnimatedSprite } from "@/interfaces/PixiTypes";
-import { minerSprites } from "@/lib/mapLogic";
-import { getMinerAnimationType } from "@/lib/minersLogic";
-import { createMinerTilesetTexture } from "@/utils/spriteLoader";
+import { updateMineCartAnimation } from "@/lib/mineCartLogic";
+import { updateMinerMovement } from "@/lib/minerMovement";
+import { createMinerSprite, updateMinerAnimation } from "@/lib/minerSprite";
 import * as PIXI from "pixi.js";
 import { useCallback, useEffect } from "react";
 
@@ -26,12 +18,18 @@ export const useGameUpdate = ({ appRef, gameState }: UseGameStateProps) => {
   const updateOreStates = useCallback(
     (deltaTime: number) => {
       if (!appRef.current) return;
+
       const app = appRef.current;
       const gameContainer = app.stage.getChildAt(0) as PIXI.Container;
       if (!gameContainer) return;
 
+      const oreContainer = gameContainer.getChildByName(
+        LayerName.Ore
+      ) as PIXI.Container;
+      if (!oreContainer) return;
+
       gameState.ores.forEach((ore) => {
-        const oreSprite = gameContainer.getChildByName(
+        const oreSprite = oreContainer.getChildByName(
           `ore-${ore.id}`
         ) as PIXI.Sprite;
         if (!oreSprite) return;
@@ -96,112 +94,66 @@ export const useGameUpdate = ({ appRef, gameState }: UseGameStateProps) => {
       const minersContainer = gameContainer.getChildByName(LayerName.Miners);
       if (!minersContainer) return;
 
-      minersContainer.children.forEach((child) => {
-        if (!(child instanceof PIXI.Sprite)) return;
+      gameState.miners.forEach((miner) => {
+        const minerContainer = minersContainer as PIXI.Container;
+        if (!minerContainer) return;
 
-        const minerId = child.name.replace("miner-", "");
-        const miner = gameState.miners.find((m) => m.id === minerId);
-        if (!miner) return;
+        let minerSprite = minerContainer.getChildByName(
+          `miner-${miner.id}`
+        ) as PIXI.Sprite;
 
-        // Update position
-        updateMinerPosition(child, miner, gameState.mapDimensions);
+        if (!minerSprite) {
+          minerSprite = minerContainer.addChild(createMinerSprite(miner));
+        }
+
+        if (!minerSprite) {
+          console.error("Miner sprite not found");
+          return;
+        }
+
+        updateMinerMovement(miner, deltaTime);
 
         // Update animation
-        updateMinerAnimation(child as AnimatedSprite, miner, deltaTime);
+        updateMinerAnimation(
+          minerSprite as AnimatedSprite,
+          miner,
+          gameState.ores,
+          deltaTime
+        );
       });
     },
-    [appRef, gameState.miners, gameState.mapDimensions]
+    [appRef, gameState.miners]
   );
 
-  // Helper function to update miner position
-  const updateMinerPosition = (
-    sprite: PIXI.Sprite,
-    miner: Miner,
-    dimensions: MapDimensions
-  ) => {
-    const tileX =
-      (miner.position.x / 100) * dimensions.width * InitialTileWidth;
-    const tileY =
-      (miner.position.y / 100) * dimensions.height * InitialTileWidth;
-    sprite.x = tileX * InitialTileWidth;
-    sprite.y = tileY * InitialTileWidth;
-  };
+  // Update mine cart animations
+  const updateMineCartAnimations = useCallback(
+    (deltaTime: number) => {
+      if (!appRef.current) return;
+      const app = appRef.current;
+      const gameContainer = app.stage.getChildAt(0) as PIXI.Container;
+      if (!gameContainer) return;
 
-  // Helper function to update miner animation
-  const updateMinerAnimation = (
-    sprite: AnimatedSprite,
-    miner: Miner,
-    deltaTime: number
-  ) => {
-    const animationType = getMinerAnimationType(miner);
-    const spriteName =
-      miner.state === "mining"
-        ? SpriteName.CharacterToolsDrillBodyGreen
-        : SpriteName.CharacterPushBodyGreen;
-
-    const spriteData = Sprites.find((s) => s.name === spriteName);
-    if (!spriteData) return;
-
-    const animationData = spriteData.animations[animationType];
-    if (!animationData) return;
-
-    // Get or create sprite data from minerSprites Map
-    let minerSpriteData = minerSprites.get(miner.id);
-    if (!minerSpriteData) {
-      minerSpriteData = {
-        sprite,
-        animationType,
-        frame: 0,
-        time: 0,
-      };
-      minerSprites.set(miner.id, minerSpriteData);
-    }
-
-    // Update position
-    sprite.x =
-      (miner.position.x / 100) *
-      gameState.mapDimensions.width *
-      InitialTileWidth;
-    sprite.y =
-      (miner.position.y / 100) *
-      gameState.mapDimensions.height *
-      InitialTileWidth;
-
-    // Update animation if type changed
-    if (minerSpriteData.animationType !== animationType) {
-      minerSpriteData.animationType = animationType;
-      minerSpriteData.frame = 0;
-      minerSpriteData.time = 0;
-
-      const texture = createMinerTilesetTexture(
-        spriteName,
-        animationData.frames[0]
+      const mineCartContainer = gameContainer.getChildByName(
+        LayerName.MineCart
       );
-      sprite.texture = texture;
-    }
+      if (!mineCartContainer) return;
 
-    // Update animation frame
-    minerSpriteData.time += deltaTime / 1000;
-    if (minerSpriteData.time >= animationData.speed) {
-      minerSpriteData.time = 0;
-      minerSpriteData.frame =
-        (minerSpriteData.frame + 1) % animationData.frames.length;
+      mineCartContainer.children.forEach((child) => {
+        if (!(child instanceof PIXI.Sprite)) return;
 
-      const texture = createMinerTilesetTexture(
-        spriteName,
-        animationData.frames[minerSpriteData.frame]
-      );
-      sprite.texture = texture;
-    }
-  };
-
+        updateMineCartAnimation(child as AnimatedSprite, deltaTime);
+      });
+    },
+    [appRef]
+  );
   // Update game state
   const updateGame = useCallback(
     (deltaTime: number) => {
       updateOreStates(deltaTime);
       updateMinerAnimations(deltaTime);
+      updateMineCartAnimations(deltaTime);
     },
-    [updateOreStates, updateMinerAnimations]
+    [updateOreStates, updateMinerAnimations, updateMineCartAnimations]
   );
 
   // Add game state update ticker

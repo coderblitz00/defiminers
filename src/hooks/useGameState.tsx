@@ -1,20 +1,22 @@
-import { useState, useEffect, useRef } from "react";
-import { generateInitialOres, generateOresForMine } from "@/lib/oresLogic";
+import { MineTypes } from "@/constants/Mine";
+import { CalculateUpgradeCost, Upgrades } from "@/constants/Upgrades";
+import { EnergySource } from "@/interfaces/EnergyTypes";
+import { GameState } from "@/interfaces/GameType";
+import { MinerState } from "@/interfaces/MinerTypes";
+import { Ore } from "@/interfaces/OreTypes";
+import { buildEnergySource, upgradeEnergySource } from "@/lib/energyLogic";
 import {
   initializeGameState,
   updateGameStateWithDeltaTime,
 } from "@/lib/gameLogic";
-import { toast } from "sonner";
-import { GameState } from "@/interfaces/GameType";
-import { CalculateUpgradeCost, Upgrades } from "@/constants/Upgrades";
-import { MinerState } from "@/interfaces/MinerTypes";
-import { Ore } from "@/interfaces/OreTypes";
-import { MineTypes } from "@/constants/Mine";
-import { EnergySource } from "@/interfaces/EnergyTypes";
-import { buildEnergySource, upgradeEnergySource } from "@/lib/energyLogic";
 import { setActiveMine, unlockMine } from "@/lib/mineLogic";
 import { createMiner } from "@/lib/minersLogic";
-import { InitialTileWidth } from "@/constants/Sprites";
+import { getAvailableMinerPositions } from "@/lib/minerSprite";
+import { generateOresForMine } from "@/lib/oresLogic";
+import { findPath } from "@/lib/pathFindingLogic";
+import { getRandomNumber } from "@/utils/utils";
+import { useEffect, useRef, useState } from "react";
+import { toast } from "sonner";
 
 export const useGameState = () => {
   const [gameState, setGameState] = useState<GameState>(initializeGameState);
@@ -26,22 +28,7 @@ export const useGameState = () => {
 
   // Initialize game state
   useEffect(() => {
-    // Generate initial ores for the starter mine
-    const initialOres = generateInitialOres(20, 100, 100);
-
-    // Create the first miner
-    const initialMiner = createMiner("basic", { x: 50, y: 50 });
-
-    setGameState((prevState) => {
-      const initialState = {
-        ...prevState,
-        miners: [initialMiner],
-        ores: initialOres,
-        lastUpdateTime: Date.now(),
-      };
-      lastMoneyRef.current = initialState.money;
-      return initialState;
-    });
+    lastMoneyRef.current = gameState.money;
 
     toast.success("Welcome to DEFI Miners! 🪨⛏️", {
       description:
@@ -57,11 +44,37 @@ export const useGameState = () => {
     };
   }, []);
 
-  const updateGameState = (newState: GameState) => {
-    setGameState((prevState) => ({
-      ...prevState,
-      ...newState,
-    }));
+  const updateGameState = (newState: Partial<GameState>) => {
+    setGameState((prevState) => {
+      // Handle nested objects explicitly
+      const mergedState = {
+        ...prevState,
+        ...newState,
+        // Deep merge for nested objects that should be preserved
+        resources: {
+          ...prevState.resources,
+          ...newState.resources,
+        },
+        resourceRate: {
+          ...prevState.resourceRate,
+          ...newState.resourceRate,
+        },
+        upgrades: {
+          ...prevState.upgrades,
+          ...newState.upgrades,
+        },
+        mines: {
+          ...prevState.mines,
+          ...newState.mines,
+        },
+        // Arrays - decide whether to replace or merge
+        miners: newState.miners ?? prevState.miners,
+        rails: newState.rails ?? prevState.rails,
+        ores: newState.ores ?? prevState.ores,
+      };
+
+      return mergedState;
+    });
   };
 
   // Game loop
@@ -191,28 +204,17 @@ export const useGameState = () => {
         return prevState;
       }
 
-      // Find a random position that's not too close to existing miners
-      let randomX = 0,
-        randomY = 0;
-      let attempts = 0;
-      const minDistance = 15; // Increased minimum distance between miners
-
-      while (attempts <= 50) {
-        // Generate random position within the mining area (20-80% range)
-        randomX = Math.floor(20 + Math.random() * 60);
-        randomY = Math.floor(20 + Math.random() * 60);
-
-        // Check if this position is far enough from other miners
-        const isFarEnough = prevState.miners.every((miner) => {
-          const dx = miner.position.x - randomX;
-          const dy = miner.position.y - randomY;
-          const distance = Math.sqrt(dx * dx + dy * dy);
-          return distance > minDistance;
-        });
-
-        if (isFarEnough) break;
-        attempts++;
+      const mine = gameState.mines[gameState.activeMine];
+      if (!mine) {
+        console.error("Active mine not found");
+        return prevState;
       }
+
+      // Get available tiles
+      const availableTiles = getAvailableMinerPositions(gameState);
+
+      const randomTile =
+        availableTiles[getRandomNumber(0, availableTiles.length - 1)];
 
       // Create specialized expert miners
       let newMiner;
@@ -227,12 +229,23 @@ export const useGameState = () => {
         ] as const;
         const randomOreType =
           oreTypes[Math.floor(Math.random() * oreTypes.length)];
-        newMiner = createMiner(type, { x: randomX, y: randomY }, randomOreType);
+        newMiner = createMiner(
+          type,
+          { x: randomTile.x, y: randomTile.y },
+          gameState.mapDimensions,
+          true,
+          randomOreType
+        );
         toast.success(
           `Hired a new expert miner specialized in ${randomOreType}: ${newMiner.name}`
         );
       } else {
-        newMiner = createMiner(type, { x: randomX, y: randomY });
+        newMiner = createMiner(
+          type,
+          { x: randomTile.x, y: randomTile.y },
+          gameState.mapDimensions,
+          true
+        );
         toast.success(`Hired a new ${type} miner: ${newMiner.name}`);
       }
 
@@ -319,12 +332,26 @@ export const useGameState = () => {
       const activeMine = prevState.mines[prevState.activeMine];
       if (!activeMine) return prevState;
 
-      const updatedMiners = prevState.miners.map((miner) => ({
-        ...miner,
-        state: "returning" as MinerState,
-        targetOreId: undefined,
-        targetPosition: { ...prevState.basePosition },
-      }));
+      const updatedMiners = prevState.miners.map((miner) => {
+        // If miner is a bot, don't change their state
+        if (miner.isBot) return miner;
+
+        return {
+          ...miner,
+          state: "returning" as MinerState,
+          targetOreId: undefined,
+          movement: {
+            ...miner.movement,
+            targetTilePos: prevState.basePosition,
+            path: findPath(
+              miner.movement.currentTilePos,
+              prevState.basePosition
+            ),
+            currentPathIndex: 0,
+            isMoving: true,
+          },
+        };
+      });
 
       return {
         ...prevState,
@@ -337,6 +364,9 @@ export const useGameState = () => {
   const handleOreClick = (ore: Ore) => {
     setGameState((prevState) => {
       const updatedMiners = prevState.miners.map((miner) => {
+        // If miner is a bot, don't change their state
+        if (miner.isBot) return miner;
+
         // If miner is already mining or moving to this ore, don't change their state
         if (
           miner.targetOreId === ore.id &&
@@ -350,18 +380,25 @@ export const useGameState = () => {
           return miner;
         }
 
-        // Convert tile coordinates to percentage-based coordinates
-        const targetPosition = {
-          x: (ore.position.x / prevState.mapDimensions.width) * 100,
-          y: (ore.position.y / prevState.mapDimensions.height) * 100,
-        };
-
         // Otherwise, make the miner move to the ore
         return {
           ...miner,
           state: "moving" as MinerState,
           targetOreId: ore.id,
-          targetPosition,
+          movement: {
+            ...miner.movement,
+            targetTilePos: {
+              x: ore.position.x,
+              y: ore.position.y,
+            },
+            path: findPath(miner.movement.currentTilePos, {
+              x: ore.position.x,
+              y: ore.position.y,
+            }),
+            isMoving: true,
+            moveProgress: 0,
+            currentPathIndex: 0,
+          },
         };
       });
 
